@@ -1,5 +1,7 @@
 const  express = require("express");
 const router = new express.Router();
+const slugify = require("slugify");
+const { resourceLimits } = require("worker_threads");
 const db = require("../db")
 const ExpressError = require("../expressError")
 
@@ -7,8 +9,34 @@ const ExpressError = require("../expressError")
 router.get ('/', async (req, res, next) => {
     try {
         const result = await db.query(
-            `SELECT code, name FROM companies`);
-        return res.json({companies: result.rows})
+            `SELECT c.code, c.name, i.industry 
+            FROM companies AS c
+            LEFT JOIN industries_companies AS ic
+            ON c.code = ic.company_code
+            LEFT JOIN industries AS i
+            On ic.industry_code = i.code`);
+            
+            const data = new Map();
+    
+            for (let i = 0; i < result.rows.length; i++) {
+                let code = result.rows[i].code;
+                let industry = result.rows[i].industry;
+          
+                if (data.has(code)) data.get(code).push(industry);
+                else data.set(code, [industry]); 
+
+            }
+            
+            const obj = [];
+            for (let [key, value] of data) {
+                let company = {};
+                company[key] = value;
+                obj.push(company)
+
+            }
+               
+        return res.send({companies: obj})
+
       } catch (err) {
         return next(err)
     }
@@ -34,7 +62,8 @@ router.get ('/:code', async (req,res, next) => {
 
 router.post ('/', async (req, res, next) => {
     try {
-        const { code, name, description } = req.body; 
+        const {name, description } = req.body; 
+        let code = slugify(name, {lower: true});
 
         const result = await db.query(
             `INSERT INTO companies (code, name, description) 
@@ -53,7 +82,7 @@ router.post ('/', async (req, res, next) => {
 router.put ('/:code', async (req,res, next) => {
     try {
         const { name, description } = req.body;
-
+        
         const result = await db.query(
               `UPDATE companies SET name=$1, description=$2
                WHERE code = $3
